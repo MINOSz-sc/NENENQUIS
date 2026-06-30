@@ -1,0 +1,1 @@
+Use this folder to store the app logo image as static/logo.png or static/logo.jpeg

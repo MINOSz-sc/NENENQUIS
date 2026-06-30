@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="Jacarta Finance: Calculadora de precios para nuevos inversores con IVA y margen de ganancia.">
+    <title>NENENQUI - Calculadora de precios</title>
+    <style>
+      :root {
+        --bg: #3a2d34; /* Black Coffee */
+        --panel: rgba(63, 42, 82, 0.92); /* Jacarta */
+        --panel-soft: rgba(190, 174, 219, 0.16); /* Wisteria */
+        --accent: #75619d; /* Dark blue-gray */
+        --accent-strong: #3f2a52; /* Jacarta dark */
+        --text: #e6eff7; /* Bright gray */
+        --muted: #d2c9e6;
+        --border: rgba(230, 239, 247, 0.18);
+        --shadow: 0 24px 80px rgba(20, 16, 30, 0.35);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Inter', system-ui, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top left, rgba(190, 174, 219, 0.18), transparent 22%),
+                    radial-gradient(circle at bottom right, rgba(230, 239, 247, 0.12), transparent 24%),
+                    linear-gradient(180deg, #3a2d34 0%, #1f1627 100%);
+      }
+      .page {
+        width: min(100%, 1100px);
+        padding: 32px 24px 48px;
+        margin: 0 auto;
+      }
+      .topbar,
+      .panel,
+      .result-card,
+      .field-card,
+      .title-group {
+        opacity: 0;
+        transform: translateY(22px);
+        transition: opacity 0.9s ease, transform 0.9s ease;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 32px;
+        padding: 20px 24px;
+        background: rgba(63, 42, 82, 0.96);
+        border: 1px solid rgba(230, 239, 247, 0.12);
+        border-radius: 26px;
+        box-shadow: var(--shadow);
+      }
+      .logo {
+        width: 78px;
+        height: 78px;
+        border-radius: 22px;
+        overflow: hidden;
+        border: 1px solid rgba(230,239,247,0.24);
+        background: rgba(230,239,247,0.08);
+        display: grid;
+        place-items: center;
+        transform: translateY(-12px) scale(0.92);
+        opacity: 0;
+        transition: transform 1.1s ease, opacity 1.1s ease;
+      }
+      .logo img {
+        width: 90%;
+        height: 90%;
+        object-fit: contain;
+        filter: drop-shadow(0 10px 18px rgba(10, 6, 28, 0.65));
+      }
+      .title-group {
+        display: grid;
+        gap: 6px;
+      }
+      .show {
+        opacity: 1 !important;
+        transform: translateY(0) scale(1) !important;
+      }
+      .title-group h1 {
+        margin: 0;
+        font-size: clamp(2rem, 2.6vw, 3rem);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #e6eff7;
+        text-shadow: 0 2px 16px rgba(117,97,157,0.35);
+      }
+      .title-group p {
+        margin: 0;
+        color: #dcd7ed;
+        max-width: 640px;
+        line-height: 1.75;
+      }
+      .panel {
+        background: rgba(58, 45, 52, 0.94);
+        border: 1px solid rgba(230, 239, 247, 0.10);
+        border-radius: 32px;
+        box-shadow: var(--shadow);
+        padding: 34px;
+        backdrop-filter: blur(20px);
+      }
+      .grid {
+        display: grid;
+        gap: 20px;
+      }
+      .field-card {
+        padding: 22px;
+        border-radius: 26px;
+        background: rgba(230,239,247,0.04);
+        border: 1px solid rgba(230,239,247,0.08);
+      }
+      form {
+        display: grid;
+        gap: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 0.95rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+      input,
+      select {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 18px;
+        padding: 18px 20px;
+        font-size: 1rem;
+        background: rgba(255,255,255,0.05);
+        color: var(--text);
+        outline: none;
+      }
+      input:focus,
+      select:focus {
+        border-color: rgba(117,97,157,0.95);
+        box-shadow: 0 0 0 4px rgba(117,97,157,0.12);
+      }
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .checkbox-row input {
+        width: 18px;
+        height: 18px;
+      }
+      .checkbox-row label {
+        margin: 0;
+        font-size: 0.99rem;
+        color: var(--text);
+        text-transform: none;
+      }
+      button {
+        border: none;
+        border-radius: 20px;
+        padding: 16px 0;
+        font-size: 1rem;
+        color: white;
+        background: linear-gradient(135deg, #75619d 0%, #3f2a52 100%);
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 18px 45px rgba(117,97,157,0.28);
+      }
+      .result-card {
+        display: grid;
+        gap: 18px;
+        margin-top: 28px;
+        padding: 28px;
+        background: rgba(190, 174, 219, 0.1);
+        border: 1px solid rgba(230,239,247,0.12);
+        border-radius: 28px;
+      }
+      .result-card h2 {
+        margin: 0;
+        font-size: 1.5rem;
+        letter-spacing: 0.06em;
+      }
+      .result-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .result-item {
+        padding: 18px;
+        border-radius: 20px;
+        background: rgba(230,239,247,0.07);
+        border: 1px solid rgba(117,97,157,0.16);
+      }
+      .result-item strong {
+        display: block;
+        margin-bottom: 8px;
+        color: #e7e2ff;
+        font-size: 0.98rem;
+      }
+      .result-item span {
+        color: var(--text);
+        font-size: 1.1rem;
+      }
+      .footer {
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      .note {
+        margin-top: 18px;
+        padding: 16px 20px;
+        border-radius: 20px;
+        background: rgba(117,97,157,0.12);
+        color: #ede5ff;
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+      @media (max-width: 700px) {
+        .result-grid { grid-template-columns: 1fr; }
+        .topbar { flex-direction: column; align-items: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">
+        <div class="logo"><img src="{{ url_for('static', filename='logo.jpeg') }}" alt="Logo Jacarta"></div>
+        <div class="title-group">
+          <h1>NENENQUI</h1>
+          <p>Calcula el precio de venta recomendado con IVA y margen de ganancia, en moneda local según el país elegido.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <form method="post">
+          <div class="grid">
+            <div class="field-card">
+              <label for="product_name">Nombre del producto / servicio</label>
+              <input type="text" name="product_name" id="product_name" value="{{ request.form.get('product_name', '') }}" placeholder="Ej. Café especial">
+            </div>
+            <div class="field-card">
+              <label for="cost">Costo del producto/servicio</label>
+              <input type="number" step="0.01" name="cost" id="cost" required value="{{ request.form.get('cost', '') }}" placeholder="Ej. 1000">
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="field-card">
+              <label for="profit_pct">Porcentaje de ganancia</label>
+              <input type="number" step="0.01" name="profit_pct" id="profit_pct" required value="{{ request.form.get('profit_pct', '') }}" placeholder="Ej. 20">
+            </div>
+            <div class="field-card checkbox-row" style="align-items: center;">
+              <input type="checkbox" name="is_service" id="is_service" {% if request.form.get('is_service') %}checked{% endif %}>
+              <label for="is_service">Es un servicio</label>
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="field-card">
+              <label for="country">País para calcular IVA</label>
+              <select name="country" id="country">
+                {% for country in iva_rates.keys() %}
+                <option value="{{ country }}" {% if request.form.get('country') == country %}selected{% endif %}>{{ country }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <button type="submit">Calcular precio de venta</button>
+        </form>
+
+        {% if result %}
+          {% if result.error %}
+            <div class="note">{{ result.error }}</div>
+          {% else %}
+            <div class="result-card">
+              <h2>Resultados</h2>
+              <div class="result-grid">
+                <div class="result-item"><strong>Producto / servicio</strong><span>{{ result.product_name }}</span></div>
+                <div class="result-item"><strong>Tipo</strong><span>{{ result.product_type }}</span></div>
+                <div class="result-item"><strong>País</strong><span>{{ result.country }} ({{ result.currency_name }})</span></div>
+                <div class="result-item"><strong>Costo base</strong><span>{{ result.currency_symbol }} {{ result.cost }} {{ result.currency_code }}</span></div>
+                <div class="result-item"><strong>Ganancia</strong><span>{{ result.profit_pct }}%</span></div>
+                <div class="result-item"><strong>Monto de ganancia</strong><span>{{ result.currency_symbol }} {{ result.profit_amount }} {{ result.currency_code }}</span></div>
+                <div class="result-item"><strong>Precio antes de IVA</strong><span>{{ result.currency_symbol }} {{ result.base_price }} {{ result.currency_code }}</span></div>
+                <div class="result-item"><strong>IVA</strong><span>{{ result.iva_pct }}%</span></div>
+                <div class="result-item"><strong>Monto de IVA</strong><span>{{ result.currency_symbol }} {{ result.iva_amount }} {{ result.currency_code }}</span></div>
+                <div class="result-item" style="grid-column: 1 / -1; background: rgba(117,97,157,0.16);">
+                  <strong>Precio final recomendado</strong>
+                  <span style="font-size: 1.3rem; font-weight: 700;">{{ result.currency_symbol }} {{ result.final_price }} {{ result.currency_code }}</span>
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        {% endif %}
+
+        <div class="footer">La aplicación no guarda datos; cada cálculo es independiente.</div>
+      </div>
+    </div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const targets = [
+          document.querySelector('.topbar'),
+          document.querySelector('.title-group'),
+          document.querySelector('.panel'),
+          document.querySelector('.logo'),
+        ];
+        targets.forEach((el, index) => {
+          if (!el) return;
+          setTimeout(() => el.classList.add('show'), index * 120);
+        });
+
+        document.querySelectorAll('.field-card').forEach((el, index) => {
+          setTimeout(() => el.classList.add('show'), 320 + index * 80);
+        });
+
+        const resultCard = document.querySelector('.result-card');
+        if (resultCard) {
+          setTimeout(() => resultCard.classList.add('show'), 620);
+        }
+      });
+    </script>
+  </body>
+</html>
