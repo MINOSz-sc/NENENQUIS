@@ -141,11 +141,7 @@ def index():
             result = {'error': 'Por favor ingresa valores numéricos válidos para costo y porcentaje.'}
 
     conn = get_db_connection()
-    with conn.cursor() as cursor:
-        cursor.execute('SELECT * FROM products ORDER BY created_at DESC')
-        products = cursor.fetchall()
-    return render_template('index.html', result=result, iva_rates=IVA_RATES, products=products)
-
+    return render_template('index.html', result=result, iva_rates=IVA_RATES)
 
 @app.route('/products', methods=['GET', 'POST'])
 def products():

@@ -309,29 +309,6 @@
           {% endif %}
         {% endif %}
 
-        <div class="result-card" style="margin-top: 24px;">
-          <h2>Productos guardados</h2>
-          {% if products %}
-            <div class="result-grid" style="grid-template-columns: 1fr; gap: 12px;">
-              {% for product in products %}
-                <div class="result-item" style="padding: 18px;">
-                  <strong>{{ product['product_name'] }}</strong>
-                  <div style="margin-top: 10px; display: grid; gap: 8px; font-size: 0.95rem; color: var(--text);">
-                    <span><strong>Tipo:</strong> {{ 'Servicio' if product['is_service'] else 'Producto' }}</span>
-                    <span><strong>País:</strong> {{ product['country'] }}</span>
-                    <span><strong>Costo:</strong> {{ product['currency_symbol'] }} {{ '%.2f' | format(product['cost']) }} {{ product['currency_code'] }}</span>
-                    <span><strong>Ganancia %:</strong> {{ '%.2f' | format(product['profit_pct']) }}%</span>
-                    <span><strong>Precio final:</strong> {{ product['currency_symbol'] }} {{ '%.2f' | format(product['final_price']) }} {{ product['currency_code'] }}</span>
-                    <span><strong>Creado:</strong> {{ product['created_at'] }}</span>
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="note">Aún no hay productos guardados. Ingresa uno para que aparezca aquí.</div>
-          {% endif %}
-        </div>
-
         <div class="footer">Los datos ingresados se guardan en la base de datos remota MySQL configurada.</div>
       </div>
     </div>
