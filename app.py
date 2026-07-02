@@ -1,10 +1,26 @@
 import os
+import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, g
-import pymysql
-from cryptography.fernet import Fernet, InvalidToken
+
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+    ENCRYPTION_AVAILABLE = True
+except ImportError:
+    Fernet = None
+    InvalidToken = Exception
+    ENCRYPTION_AVAILABLE = False
 
 app = Flask(__name__)
+
+try:
+    import pymysql
+    from pymysql.cursors import DictCursor
+    MYSQL_AVAILABLE = True
+except ImportError:
+    pymysql = None
+    DictCursor = None
+    MYSQL_AVAILABLE = False
 
 DB_CONFIG = {
     'host': 'sql5.freesqldatabase.com',
@@ -13,9 +29,10 @@ DB_CONFIG = {
     'db': 'sql5832072',
     'port': 3306,
     'charset': 'utf8mb4',
-    'cursorclass': pymysql.cursors.DictCursor,
+    'cursorclass': DictCursor,
 }
 
+DB_PATH = os.path.join(os.path.dirname(__file__), 'products.db')
 KEY_PATH = os.path.join(os.path.dirname(__file__), 'secret.key')
 
 
@@ -28,25 +45,35 @@ def load_or_create_key():
         with open(KEY_PATH, 'rb') as file:
             return file.read()
 
+    if not ENCRYPTION_AVAILABLE:
+        return None
+
     key = Fernet.generate_key()
     with open(KEY_PATH, 'wb') as file:
         file.write(key)
     return key
 
 
-FERNET = Fernet(load_or_create_key())
+if ENCRYPTION_AVAILABLE:
+    FERNET = Fernet(load_or_create_key())
+else:
+    FERNET = None
 
 
 def encrypt_text(value):
     if value is None:
         return None
     text = str(value).encode('utf-8')
+    if not ENCRYPTION_AVAILABLE or FERNET is None:
+        return text.decode('utf-8')
     return FERNET.encrypt(text).decode('utf-8')
 
 
 def decrypt_text(value):
     if value is None:
         return None
+    if not ENCRYPTION_AVAILABLE or FERNET is None:
+        return value
     try:
         return FERNET.decrypt(value.encode('utf-8')).decode('utf-8')
     except (InvalidToken, TypeError, ValueError):
@@ -75,12 +102,12 @@ CURRENCY_BY_COUNTRY = {
 
 CREATE_TABLE_SQL = '''
 CREATE TABLE IF NOT EXISTS products (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id {id_column},
     product_name TEXT NOT NULL,
     cost TEXT NOT NULL,
     profit_pct TEXT NOT NULL,
     country TEXT NOT NULL,
-    is_service TINYINT(1) NOT NULL DEFAULT 0,
+    is_service INTEGER NOT NULL DEFAULT 0,
     iva_rate TEXT NOT NULL,
     profit_amount TEXT NOT NULL,
     base_price TEXT NOT NULL,
@@ -88,15 +115,41 @@ CREATE TABLE IF NOT EXISTS products (
     final_price TEXT NOT NULL,
     currency_code TEXT NOT NULL,
     currency_symbol TEXT NOT NULL,
-    created_at DATETIME NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-'''
+    created_at TEXT NOT NULL
+){table_options}
+'''.format(
+    id_column='INT AUTO_INCREMENT PRIMARY KEY' if MYSQL_AVAILABLE else 'INTEGER PRIMARY KEY AUTOINCREMENT',
+    table_options=' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4' if MYSQL_AVAILABLE else ''
+)
+
+
+def format_sql(sql):
+    return sql if MYSQL_AVAILABLE else sql.replace('%s', '?')
+
+
+def execute_sql(sql, params=(), fetchone=False, fetchall=False, commit=False):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(format_sql(sql), params)
+        if commit:
+            conn.commit()
+        if fetchone:
+            return cursor.fetchone()
+        if fetchall:
+            return cursor.fetchall()
+    finally:
+        cursor.close()
 
 
 def get_db_connection():
     conn = getattr(g, '_database', None)
     if conn is None:
-        conn = pymysql.connect(**DB_CONFIG)
+        if MYSQL_AVAILABLE:
+            conn = pymysql.connect(**DB_CONFIG)
+        else:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
         g._database = conn
     return conn
 
@@ -109,22 +162,20 @@ def close_connection(exception):
 
 
 def init_db():
-    conn = pymysql.connect(**DB_CONFIG)
-    with conn.cursor() as cursor:
-        cursor.execute(CREATE_TABLE_SQL)
-        cursor.execute("ALTER TABLE products MODIFY COLUMN product_name TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN cost TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN profit_pct TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN country TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN iva_rate TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN profit_amount TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN base_price TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN iva_amount TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN final_price TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN currency_code TEXT NOT NULL")
-        cursor.execute("ALTER TABLE products MODIFY COLUMN currency_symbol TEXT NOT NULL")
-    conn.commit()
-    conn.close()
+    if MYSQL_AVAILABLE:
+        conn = pymysql.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(CREATE_TABLE_SQL)
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(CREATE_TABLE_SQL)
+        conn.commit()
+        conn.close()
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -161,31 +212,29 @@ def index():
                 'product_type': 'Servicio' if is_service else 'Producto',
             }
 
-            conn = get_db_connection()
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    '''INSERT INTO products (
-                        product_name, cost, profit_pct, country, is_service,
-                        iva_rate, profit_amount, base_price, iva_amount,
-                        final_price, currency_code, currency_symbol, created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
-                    (
-                        encrypt_text(result['product_name']),
-                        encrypt_text(result['cost']),
-                        encrypt_text(result['profit_pct']),
-                        encrypt_text(result['country']),
-                        int(is_service),
-                        encrypt_text(iva_rate),
-                        encrypt_text(result['profit_amount']),
-                        encrypt_text(result['base_price']),
-                        encrypt_text(result['iva_amount']),
-                        encrypt_text(result['final_price']),
-                        encrypt_text(result['currency_code']),
-                        encrypt_text(result['currency_symbol']),
-                        datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
-                    ),
-                )
-            conn.commit()
+            execute_sql(
+                '''INSERT INTO products (
+                    product_name, cost, profit_pct, country, is_service,
+                    iva_rate, profit_amount, base_price, iva_amount,
+                    final_price, currency_code, currency_symbol, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                (
+                    encrypt_text(result['product_name']),
+                    encrypt_text(result['cost']),
+                    encrypt_text(result['profit_pct']),
+                    encrypt_text(result['country']),
+                    int(is_service),
+                    encrypt_text(iva_rate),
+                    encrypt_text(result['profit_amount']),
+                    encrypt_text(result['base_price']),
+                    encrypt_text(result['iva_amount']),
+                    encrypt_text(result['final_price']),
+                    encrypt_text(result['currency_code']),
+                    encrypt_text(result['currency_symbol']),
+                    datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                ),
+                commit=True,
+            )
         except ValueError:
             result = {'error': 'Por favor ingresa valores numéricos válidos para costo y porcentaje.'}
 
@@ -206,9 +255,7 @@ def products():
         product_id = request.form.get('product_id')
 
         if action == 'delete' and product_id:
-            with conn.cursor() as cursor:
-                cursor.execute('DELETE FROM products WHERE id = %s', (product_id,))
-            conn.commit()
+            execute_sql('DELETE FROM products WHERE id = %s', (product_id,), commit=True)
             message = 'Producto eliminado correctamente.'
         elif action == 'update' and product_id:
             try:
@@ -225,39 +272,38 @@ def products():
                 iva_amount = base_price * iva_rate
                 final_price = base_price + iva_amount
 
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        '''UPDATE products SET
-                            product_name=%s,
-                            cost=%s,
-                            profit_pct=%s,
-                            country=%s,
-                            is_service=%s,
-                            iva_rate=%s,
-                            profit_amount=%s,
-                            base_price=%s,
-                            iva_amount=%s,
-                            final_price=%s,
-                            currency_code=%s,
-                            currency_symbol=%s
-                        WHERE id=%s''',
-                        (
-                            encrypt_text(product_name),
-                            encrypt_text(cost),
-                            encrypt_text(profit_pct),
-                            encrypt_text(country),
-                            int(is_service),
-                            encrypt_text(iva_rate),
-                            encrypt_text(profit_amount),
-                            encrypt_text(base_price),
-                            encrypt_text(iva_amount),
-                            encrypt_text(final_price),
-                            encrypt_text(currency['code']),
-                            encrypt_text(currency['symbol']),
-                            product_id,
-                        ),
-                    )
-                conn.commit()
+                execute_sql(
+                    '''UPDATE products SET
+                        product_name=%s,
+                        cost=%s,
+                        profit_pct=%s,
+                        country=%s,
+                        is_service=%s,
+                        iva_rate=%s,
+                        profit_amount=%s,
+                        base_price=%s,
+                        iva_amount=%s,
+                        final_price=%s,
+                        currency_code=%s,
+                        currency_symbol=%s
+                    WHERE id=%s''',
+                    (
+                        encrypt_text(product_name),
+                        encrypt_text(cost),
+                        encrypt_text(profit_pct),
+                        encrypt_text(country),
+                        int(is_service),
+                        encrypt_text(iva_rate),
+                        encrypt_text(profit_amount),
+                        encrypt_text(base_price),
+                        encrypt_text(iva_amount),
+                        encrypt_text(final_price),
+                        encrypt_text(currency['code']),
+                        encrypt_text(currency['symbol']),
+                        product_id,
+                    ),
+                    commit=True,
+                )
                 message = 'Producto actualizado correctamente.'
                 edit_id = None
             except ValueError:
@@ -265,22 +311,18 @@ def products():
                 edit_id = product_id
 
     if edit_id:
-        with conn.cursor() as cursor:
-            cursor.execute('SELECT * FROM products WHERE id = %s', (edit_id,))
-            edit_product = cursor.fetchone()
-            if edit_product:
-                edit_product = {
-                    'id': edit_product['id'],
-                    'product_name': decrypt_text(edit_product['product_name']),
-                    'cost': decrypt_text(edit_product['cost']),
-                    'profit_pct': decrypt_text(edit_product['profit_pct']),
-                    'country': decrypt_text(edit_product['country']),
-                    'is_service': bool(edit_product['is_service']),
-                }
+        edit_product = execute_sql('SELECT * FROM products WHERE id = %s', (edit_id,), fetchone=True)
+        if edit_product:
+            edit_product = {
+                'id': edit_product['id'],
+                'product_name': decrypt_text(edit_product['product_name']),
+                'cost': decrypt_text(edit_product['cost']),
+                'profit_pct': decrypt_text(edit_product['profit_pct']),
+                'country': decrypt_text(edit_product['country']),
+                'is_service': bool(edit_product['is_service']),
+            }
 
-    with conn.cursor() as cursor:
-        cursor.execute('SELECT * FROM products ORDER BY created_at DESC')
-        rows = cursor.fetchall()
+    rows = execute_sql('SELECT * FROM products ORDER BY created_at DESC', fetchall=True)
 
     products_list = []
     for row in rows:
