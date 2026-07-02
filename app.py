@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from flask import Flask, render_template, request, g
 import pymysql
+from cryptography.fernet import Fernet, InvalidToken
 
 app = Flask(__name__)
 
@@ -14,6 +15,43 @@ DB_CONFIG = {
     'charset': 'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor,
 }
+
+KEY_PATH = os.path.join(os.path.dirname(__file__), 'secret.key')
+
+
+def load_or_create_key():
+    env_key = os.environ.get('ENCRYPTION_KEY')
+    if env_key:
+        return env_key.encode('utf-8')
+
+    if os.path.exists(KEY_PATH):
+        with open(KEY_PATH, 'rb') as file:
+            return file.read()
+
+    key = Fernet.generate_key()
+    with open(KEY_PATH, 'wb') as file:
+        file.write(key)
+    return key
+
+
+FERNET = Fernet(load_or_create_key())
+
+
+def encrypt_text(value):
+    if value is None:
+        return None
+    text = str(value).encode('utf-8')
+    return FERNET.encrypt(text).decode('utf-8')
+
+
+def decrypt_text(value):
+    if value is None:
+        return None
+    try:
+        return FERNET.decrypt(value.encode('utf-8')).decode('utf-8')
+    except (InvalidToken, TypeError, ValueError):
+        return value
+
 
 IVA_RATES = {
     'Argentina': 0.21,
@@ -38,18 +76,18 @@ CURRENCY_BY_COUNTRY = {
 CREATE_TABLE_SQL = '''
 CREATE TABLE IF NOT EXISTS products (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    product_name VARCHAR(255) NOT NULL,
-    cost DECIMAL(12,2) NOT NULL,
-    profit_pct DECIMAL(7,2) NOT NULL,
-    country VARCHAR(100) NOT NULL,
+    product_name TEXT NOT NULL,
+    cost TEXT NOT NULL,
+    profit_pct TEXT NOT NULL,
+    country TEXT NOT NULL,
     is_service TINYINT(1) NOT NULL DEFAULT 0,
-    iva_rate DECIMAL(5,4) NOT NULL,
-    profit_amount DECIMAL(12,2) NOT NULL,
-    base_price DECIMAL(12,2) NOT NULL,
-    iva_amount DECIMAL(12,2) NOT NULL,
-    final_price DECIMAL(12,2) NOT NULL,
-    currency_code VARCHAR(10) NOT NULL,
-    currency_symbol VARCHAR(5) NOT NULL,
+    iva_rate TEXT NOT NULL,
+    profit_amount TEXT NOT NULL,
+    base_price TEXT NOT NULL,
+    iva_amount TEXT NOT NULL,
+    final_price TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    currency_symbol TEXT NOT NULL,
     created_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 '''
@@ -74,6 +112,17 @@ def init_db():
     conn = pymysql.connect(**DB_CONFIG)
     with conn.cursor() as cursor:
         cursor.execute(CREATE_TABLE_SQL)
+        cursor.execute("ALTER TABLE products MODIFY COLUMN product_name TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN cost TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN profit_pct TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN country TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN iva_rate TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN profit_amount TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN base_price TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN iva_amount TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN final_price TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN currency_code TEXT NOT NULL")
+        cursor.execute("ALTER TABLE products MODIFY COLUMN currency_symbol TEXT NOT NULL")
     conn.commit()
     conn.close()
 
@@ -121,18 +170,18 @@ def index():
                         final_price, currency_code, currency_symbol, created_at
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
                     (
-                        result['product_name'],
-                        result['cost'],
-                        result['profit_pct'],
-                        result['country'],
+                        encrypt_text(result['product_name']),
+                        encrypt_text(result['cost']),
+                        encrypt_text(result['profit_pct']),
+                        encrypt_text(result['country']),
                         int(is_service),
-                        iva_rate,
-                        result['profit_amount'],
-                        result['base_price'],
-                        result['iva_amount'],
-                        result['final_price'],
-                        result['currency_code'],
-                        result['currency_symbol'],
+                        encrypt_text(iva_rate),
+                        encrypt_text(result['profit_amount']),
+                        encrypt_text(result['base_price']),
+                        encrypt_text(result['iva_amount']),
+                        encrypt_text(result['final_price']),
+                        encrypt_text(result['currency_code']),
+                        encrypt_text(result['currency_symbol']),
                         datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
                     ),
                 )
@@ -193,18 +242,18 @@ def products():
                             currency_symbol=%s
                         WHERE id=%s''',
                         (
-                            product_name,
-                            cost,
-                            profit_pct,
-                            country,
+                            encrypt_text(product_name),
+                            encrypt_text(cost),
+                            encrypt_text(profit_pct),
+                            encrypt_text(country),
                             int(is_service),
-                            iva_rate,
-                            profit_amount,
-                            base_price,
-                            iva_amount,
-                            final_price,
-                            currency['code'],
-                            currency['symbol'],
+                            encrypt_text(iva_rate),
+                            encrypt_text(profit_amount),
+                            encrypt_text(base_price),
+                            encrypt_text(iva_amount),
+                            encrypt_text(final_price),
+                            encrypt_text(currency['code']),
+                            encrypt_text(currency['symbol']),
                             product_id,
                         ),
                     )
@@ -219,18 +268,43 @@ def products():
         with conn.cursor() as cursor:
             cursor.execute('SELECT * FROM products WHERE id = %s', (edit_id,))
             edit_product = cursor.fetchone()
-
-    query = 'SELECT * FROM products'
-    params = ()
-    if search:
-        query += ' WHERE product_name LIKE %s OR country LIKE %s'
-        like = f'%{search}%'
-        params = (like, like)
-    query += ' ORDER BY created_at DESC'
+            if edit_product:
+                edit_product = {
+                    'id': edit_product['id'],
+                    'product_name': decrypt_text(edit_product['product_name']),
+                    'cost': decrypt_text(edit_product['cost']),
+                    'profit_pct': decrypt_text(edit_product['profit_pct']),
+                    'country': decrypt_text(edit_product['country']),
+                    'is_service': bool(edit_product['is_service']),
+                }
 
     with conn.cursor() as cursor:
-        cursor.execute(query, params)
-        products_list = cursor.fetchall()
+        cursor.execute('SELECT * FROM products ORDER BY created_at DESC')
+        rows = cursor.fetchall()
+
+    products_list = []
+    for row in rows:
+        decrypted = {
+            'id': row['id'],
+            'product_name': decrypt_text(row['product_name']),
+            'cost': float(decrypt_text(row['cost'])) if row['cost'] else 0.0,
+            'profit_pct': float(decrypt_text(row['profit_pct'])) if row['profit_pct'] else 0.0,
+            'country': decrypt_text(row['country']),
+            'is_service': bool(row['is_service']),
+            'iva_rate': float(decrypt_text(row['iva_rate'])) if row['iva_rate'] else 0.0,
+            'profit_amount': float(decrypt_text(row['profit_amount'])) if row['profit_amount'] else 0.0,
+            'base_price': float(decrypt_text(row['base_price'])) if row['base_price'] else 0.0,
+            'iva_amount': float(decrypt_text(row['iva_amount'])) if row['iva_amount'] else 0.0,
+            'final_price': float(decrypt_text(row['final_price'])) if row['final_price'] else 0.0,
+            'currency_code': decrypt_text(row['currency_code']),
+            'currency_symbol': decrypt_text(row['currency_symbol']),
+            'created_at': row['created_at'],
+        }
+        products_list.append(decrypted)
+
+    if search:
+        search_lower = search.lower()
+        products_list = [p for p in products_list if search_lower in p['product_name'].lower() or search_lower in p['country'].lower()]
 
     return render_template(
         'products.html',

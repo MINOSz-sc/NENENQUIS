@@ -3,17 +3,17 @@
 
 CREATE TABLE products (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  product_name VARCHAR(255) NOT NULL,
-  cost DECIMAL(12,2) NOT NULL,
-  profit_pct DECIMAL(7,2) NOT NULL,
-  country VARCHAR(100) NOT NULL,
+  product_name TEXT NOT NULL,
+  cost TEXT NOT NULL,
+  profit_pct TEXT NOT NULL,
+  country TEXT NOT NULL,
   is_service TINYINT(1) NOT NULL DEFAULT 0,
-  iva_rate DECIMAL(5,4) NOT NULL,
-  profit_amount DECIMAL(12,2) NOT NULL,
-  base_price DECIMAL(12,2) NOT NULL,
-  iva_amount DECIMAL(12,2) NOT NULL,
-  final_price DECIMAL(12,2) NOT NULL,
-  currency_code VARCHAR(10) NOT NULL,
-  currency_symbol VARCHAR(5) NOT NULL,
+  iva_rate TEXT NOT NULL,
+  profit_amount TEXT NOT NULL,
+  base_price TEXT NOT NULL,
+  iva_amount TEXT NOT NULL,
+  final_price TEXT NOT NULL,
+  currency_code TEXT NOT NULL,
+  currency_symbol TEXT NOT NULL,
   created_at DATETIME NOT NULL
 );
