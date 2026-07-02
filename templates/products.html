@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="Lista y administración de productos guardados en la base de datos.">
+    <title>Productos guardados - NENENQUI</title>
+    <style>
+      :root {
+        --bg: #3a2d34;
+        --panel: rgba(63, 42, 82, 0.92);
+        --text: #e6eff7;
+        --muted: #d2c9e6;
+        --border: rgba(230, 239, 247, 0.18);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Inter', system-ui, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top left, rgba(190, 174, 219, 0.18), transparent 22%),
+                    radial-gradient(circle at bottom right, rgba(230, 239, 247, 0.12), transparent 24%),
+                    linear-gradient(180deg, #3a2d34 0%, #1f1627 100%);
+      }
+      .page {
+        width: min(100%, 1100px);
+        padding: 32px 24px 48px;
+        margin: 0 auto;
+      }
+      .topbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 32px;
+        padding: 20px 24px;
+        background: rgba(63, 42, 82, 0.96);
+        border: 1px solid rgba(230, 239, 247, 0.12);
+        border-radius: 26px;
+        box-shadow: 0 24px 80px rgba(20, 16, 30, 0.35);
+      }
+      .topbar h1 {
+        margin: 0;
+        font-size: clamp(2rem, 2.6vw, 3rem);
+      }
+      .topbar p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .button-link,
+      .primary-button {
+        padding: 14px 20px;
+        color: white;
+        text-decoration: none;
+        border-radius: 20px;
+        background: linear-gradient(135deg, #75619d 0%, #3f2a52 100%);
+        border: none;
+        cursor: pointer;
+      }
+      .button-link:hover,
+      .primary-button:hover {
+        opacity: 0.95;
+      }
+      .panel {
+        background: rgba(58, 45, 52, 0.94);
+        border: 1px solid rgba(230, 239, 247, 0.10);
+        border-radius: 32px;
+        box-shadow: 0 24px 80px rgba(20, 16, 30, 0.35);
+        padding: 34px;
+        backdrop-filter: blur(20px);
+      }
+      .grid {
+        display: grid;
+        gap: 20px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: center;
+      }
+      input,
+      select {
+        width: 100%;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 18px;
+        padding: 18px 20px;
+        font-size: 1rem;
+        background: rgba(255,255,255,0.05);
+        color: var(--text);
+        outline: none;
+      }
+      input:focus,
+      select:focus {
+        border-color: rgba(117,97,157,0.95);
+        box-shadow: 0 0 0 4px rgba(117,97,157,0.12);
+      }
+      label {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 0.95rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 18px;
+      }
+      th, td {
+        padding: 14px 12px;
+        text-align: left;
+        border-bottom: 1px solid rgba(230,239,247,0.08);
+      }
+      th {
+        color: #f4efff;
+        font-weight: 700;
+      }
+      td {
+        color: var(--text);
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .card {
+        background: rgba(230,239,247,0.04);
+        border: 1px solid rgba(230,239,247,0.08);
+        border-radius: 28px;
+        padding: 24px;
+      }
+      .note {
+        margin-top: 18px;
+        padding: 16px 20px;
+        border-radius: 20px;
+        background: rgba(117,97,157,0.12);
+        color: #ede5ff;
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+      @media (max-width: 800px) {
+        .topbar,
+        .row {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        table,
+        thead,
+        tbody,
+        th,
+        td,
+        tr {
+          display: block;
+        }
+        th {
+          display: none;
+        }
+        td {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          white-space: normal;
+        }
+        td::before {
+          content: attr(data-label);
+          font-weight: 700;
+          color: var(--muted);
+          min-width: 120px;
+          display: inline-block;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">
+        <div>
+          <h1>Productos guardados</h1>
+          <p>Busca, edita o elimina productos directamente desde la base de datos.</p>
+        </div>
+        <a href="{{ url_for('index') }}" class="button-link">Volver a calculadora</a>
+      </div>
+
+      <div class="panel card">
+        {% if message %}
+          <div class="note">{{ message }}</div>
+        {% endif %}
+
+        <form method="get" class="row">
+          <div style="flex:1; min-width:220px;">
+            <label for="search">Buscar por nombre o país</label>
+            <input type="search" name="search" id="search" value="{{ search }}" placeholder="Ej. Café o Argentina">
+          </div>
+          <button type="submit" class="primary-button">Buscar</button>
+        </form>
+
+        {% if edit_product %}
+          <div class="card" style="margin-top: 24px;">
+            <h2>Editar producto</h2>
+            <form method="post" class="grid">
+              <input type="hidden" name="action" value="update">
+              <input type="hidden" name="product_id" value="{{ edit_product.id }}">
+              <input type="hidden" name="search" value="{{ search }}">
+
+              <div class="field-card">
+                <label for="product_name">Nombre del producto</label>
+                <input type="text" name="product_name" id="product_name" value="{{ edit_product.product_name }}" required>
+              </div>
+              <div class="field-card">
+                <label for="cost">Costo</label>
+                <input type="number" step="0.01" name="cost" id="cost" value="{{ edit_product.cost }}" required>
+              </div>
+              <div class="field-card">
+                <label for="profit_pct">Porcentaje de ganancia</label>
+                <input type="number" step="0.01" name="profit_pct" id="profit_pct" value="{{ edit_product.profit_pct }}" required>
+              </div>
+              <div class="field-card">
+                <label for="country">País</label>
+                <select name="country" id="country">
+                  {% for country in iva_rates.keys() %}
+                    <option value="{{ country }}" {% if edit_product.country == country %}selected{% endif %}>{{ country }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field-card checkbox-row" style="align-items: center;">
+                <input type="checkbox" name="is_service" id="is_service" {% if edit_product.is_service %}checked{% endif %}>
+                <label for="is_service">Es un servicio</label>
+              </div>
+
+              <button type="submit">Guardar cambios</button>
+            </form>
+          </div>
+        {% endif %}
+
+        {% if products %}
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Tipo</th>
+                <th>País</th>
+                <th>Costo</th>
+                <th>Total</th>
+                <th>Fecha</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for product in products %}
+                <tr>
+                  <td data-label="Nombre">{{ product.product_name }}</td>
+                  <td data-label="Tipo">{{ 'Servicio' if product.is_service else 'Producto' }}</td>
+                  <td data-label="País">{{ product.country }}</td>
+                  <td data-label="Costo">{{ product.currency_symbol }} {{ '%.2f'|format(product.cost) }}</td>
+                  <td data-label="Total">{{ product.currency_symbol }} {{ '%.2f'|format(product.final_price) }}</td>
+                  <td data-label="Fecha">{{ product.created_at }}</td>
+                  <td data-label="Acciones">
+                    <div class="actions">
+                      <form method="post" style="display:inline-flex; gap:8px; flex-wrap:wrap;">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="product_id" value="{{ product.id }}">
+                        <button type="submit" class="primary-button" style="background:#b83f5a;">Eliminar</button>
+                      </form>
+                      <form method="get" action="{{ url_for('products') }}" style="display:inline-flex; gap:8px; flex-wrap:wrap;">
+                        <input type="hidden" name="search" value="{{ search }}">
+                        <input type="hidden" name="edit_id" value="{{ product.id }}">
+                        <button type="submit" class="primary-button" style="background:#5a7db8;">Editar</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="note">No hay productos que coincidan con la búsqueda.</div>
+        {% endif %}
+      </div>
+    </div>
+  </body>
+</html>

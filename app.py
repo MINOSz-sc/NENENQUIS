@@ -147,6 +147,105 @@ def index():
     return render_template('index.html', result=result, iva_rates=IVA_RATES, products=products)
 
 
+@app.route('/products', methods=['GET', 'POST'])
+def products():
+    message = None
+    search = request.args.get('search', '').strip()
+    edit_id = request.args.get('edit_id')
+    edit_product = None
+
+    conn = get_db_connection()
+    if request.method == 'POST':
+        action = request.form.get('action')
+        search = request.form.get('search', '').strip()
+        product_id = request.form.get('product_id')
+
+        if action == 'delete' and product_id:
+            with conn.cursor() as cursor:
+                cursor.execute('DELETE FROM products WHERE id = %s', (product_id,))
+            conn.commit()
+            message = 'Producto eliminado correctamente.'
+        elif action == 'update' and product_id:
+            try:
+                product_name = request.form.get('product_name', '').strip() or 'Producto'
+                cost = float(request.form.get('cost', 0))
+                profit_pct = float(request.form.get('profit_pct', 0))
+                country = request.form.get('country', 'Otros')
+                is_service = request.form.get('is_service') == 'on'
+
+                iva_rate = IVA_RATES.get(country, IVA_RATES['Otros'])
+                currency = CURRENCY_BY_COUNTRY.get(country, CURRENCY_BY_COUNTRY['Otros'])
+                profit_amount = cost * (profit_pct / 100)
+                base_price = cost + profit_amount
+                iva_amount = base_price * iva_rate
+                final_price = base_price + iva_amount
+
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        '''UPDATE products SET
+                            product_name=%s,
+                            cost=%s,
+                            profit_pct=%s,
+                            country=%s,
+                            is_service=%s,
+                            iva_rate=%s,
+                            profit_amount=%s,
+                            base_price=%s,
+                            iva_amount=%s,
+                            final_price=%s,
+                            currency_code=%s,
+                            currency_symbol=%s
+                        WHERE id=%s''',
+                        (
+                            product_name,
+                            cost,
+                            profit_pct,
+                            country,
+                            int(is_service),
+                            iva_rate,
+                            profit_amount,
+                            base_price,
+                            iva_amount,
+                            final_price,
+                            currency['code'],
+                            currency['symbol'],
+                            product_id,
+                        ),
+                    )
+                conn.commit()
+                message = 'Producto actualizado correctamente.'
+                edit_id = None
+            except ValueError:
+                message = 'Por favor ingresa datos numéricos válidos.'
+                edit_id = product_id
+
+    if edit_id:
+        with conn.cursor() as cursor:
+            cursor.execute('SELECT * FROM products WHERE id = %s', (edit_id,))
+            edit_product = cursor.fetchone()
+
+    query = 'SELECT * FROM products'
+    params = ()
+    if search:
+        query += ' WHERE product_name LIKE %s OR country LIKE %s'
+        like = f'%{search}%'
+        params = (like, like)
+    query += ' ORDER BY created_at DESC'
+
+    with conn.cursor() as cursor:
+        cursor.execute(query, params)
+        products_list = cursor.fetchall()
+
+    return render_template(
+        'products.html',
+        products=products_list,
+        search=search,
+        message=message,
+        edit_product=edit_product,
+        iva_rates=IVA_RATES,
+    )
+
+
 if __name__ == '__main__':
     init_db()
     port = int(os.environ.get('PORT', 5000))
