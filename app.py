@@ -1,11 +1,19 @@
 import os
-import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, g
+import pymysql
 
 app = Flask(__name__)
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'products.db')
+DB_CONFIG = {
+    'host': 'sql5.freesqldatabase.com',
+    'user': 'sql5832072',
+    'password': 'A4k3Ls28x1',
+    'db': 'sql5832072',
+    'port': 3306,
+    'charset': 'utf8mb4',
+    'cursorclass': pymysql.cursors.DictCursor,
+}
 
 IVA_RATES = {
     'Argentina': 0.21,
@@ -29,29 +37,28 @@ CURRENCY_BY_COUNTRY = {
 
 CREATE_TABLE_SQL = '''
 CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_name TEXT NOT NULL,
-    cost REAL NOT NULL,
-    profit_pct REAL NOT NULL,
-    country TEXT NOT NULL,
-    is_service INTEGER NOT NULL DEFAULT 0,
-    iva_rate REAL NOT NULL,
-    profit_amount REAL NOT NULL,
-    base_price REAL NOT NULL,
-    iva_amount REAL NOT NULL,
-    final_price REAL NOT NULL,
-    currency_code TEXT NOT NULL,
-    currency_symbol TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    product_name VARCHAR(255) NOT NULL,
+    cost DECIMAL(12,2) NOT NULL,
+    profit_pct DECIMAL(7,2) NOT NULL,
+    country VARCHAR(100) NOT NULL,
+    is_service TINYINT(1) NOT NULL DEFAULT 0,
+    iva_rate DECIMAL(5,4) NOT NULL,
+    profit_amount DECIMAL(12,2) NOT NULL,
+    base_price DECIMAL(12,2) NOT NULL,
+    iva_amount DECIMAL(12,2) NOT NULL,
+    final_price DECIMAL(12,2) NOT NULL,
+    currency_code VARCHAR(10) NOT NULL,
+    currency_symbol VARCHAR(5) NOT NULL,
+    created_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 '''
 
 
 def get_db_connection():
     conn = getattr(g, '_database', None)
     if conn is None:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = pymysql.connect(**DB_CONFIG)
         g._database = conn
     return conn
 
@@ -64,8 +71,9 @@ def close_connection(exception):
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(CREATE_TABLE_SQL)
+    conn = pymysql.connect(**DB_CONFIG)
+    with conn.cursor() as cursor:
+        cursor.execute(CREATE_TABLE_SQL)
     conn.commit()
     conn.close()
 
@@ -105,34 +113,37 @@ def index():
             }
 
             conn = get_db_connection()
-            conn.execute(
-                '''INSERT INTO products (
-                    product_name, cost, profit_pct, country, is_service,
-                    iva_rate, profit_amount, base_price, iva_amount,
-                    final_price, currency_code, currency_symbol, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                (
-                    result['product_name'],
-                    result['cost'],
-                    result['profit_pct'],
-                    result['country'],
-                    int(is_service),
-                    iva_rate,
-                    result['profit_amount'],
-                    result['base_price'],
-                    result['iva_amount'],
-                    result['final_price'],
-                    result['currency_code'],
-                    result['currency_symbol'],
-                    datetime.utcnow().isoformat(sep=' ', timespec='seconds'),
-                ),
-            )
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    '''INSERT INTO products (
+                        product_name, cost, profit_pct, country, is_service,
+                        iva_rate, profit_amount, base_price, iva_amount,
+                        final_price, currency_code, currency_symbol, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                    (
+                        result['product_name'],
+                        result['cost'],
+                        result['profit_pct'],
+                        result['country'],
+                        int(is_service),
+                        iva_rate,
+                        result['profit_amount'],
+                        result['base_price'],
+                        result['iva_amount'],
+                        result['final_price'],
+                        result['currency_code'],
+                        result['currency_symbol'],
+                        datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                    ),
+                )
             conn.commit()
         except ValueError:
             result = {'error': 'Por favor ingresa valores numéricos válidos para costo y porcentaje.'}
 
     conn = get_db_connection()
-    products = conn.execute('SELECT * FROM products ORDER BY created_at DESC').fetchall()
+    with conn.cursor() as cursor:
+        cursor.execute('SELECT * FROM products ORDER BY created_at DESC')
+        products = cursor.fetchall()
     return render_template('index.html', result=result, iva_rates=IVA_RATES, products=products)
 
 
