@@ -3,14 +3,6 @@ import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, g
 
-try:
-    from cryptography.fernet import Fernet, InvalidToken
-    ENCRYPTION_AVAILABLE = True
-except ImportError:
-    Fernet = None
-    InvalidToken = Exception
-    ENCRYPTION_AVAILABLE = False
-
 app = Flask(__name__)
 
 try:
@@ -32,52 +24,16 @@ DB_CONFIG = {
     'cursorclass': DictCursor,
 }
 
+DB_USE_MYSQL = MYSQL_AVAILABLE
 DB_PATH = os.path.join(os.path.dirname(__file__), 'products.db')
-KEY_PATH = os.path.join(os.path.dirname(__file__), 'secret.key')
-
-
-def load_or_create_key():
-    env_key = os.environ.get('ENCRYPTION_KEY')
-    if env_key:
-        return env_key.encode('utf-8')
-
-    if os.path.exists(KEY_PATH):
-        with open(KEY_PATH, 'rb') as file:
-            return file.read()
-
-    if not ENCRYPTION_AVAILABLE:
-        return None
-
-    key = Fernet.generate_key()
-    with open(KEY_PATH, 'wb') as file:
-        file.write(key)
-    return key
-
-
-if ENCRYPTION_AVAILABLE:
-    FERNET = Fernet(load_or_create_key())
-else:
-    FERNET = None
 
 
 def encrypt_text(value):
-    if value is None:
-        return None
-    text = str(value).encode('utf-8')
-    if not ENCRYPTION_AVAILABLE or FERNET is None:
-        return text.decode('utf-8')
-    return FERNET.encrypt(text).decode('utf-8')
+    return None if value is None else str(value)
 
 
 def decrypt_text(value):
-    if value is None:
-        return None
-    if not ENCRYPTION_AVAILABLE or FERNET is None:
-        return value
-    try:
-        return FERNET.decrypt(value.encode('utf-8')).decode('utf-8')
-    except (InvalidToken, TypeError, ValueError):
-        return value
+    return value
 
 
 IVA_RATES = {
@@ -100,7 +56,8 @@ CURRENCY_BY_COUNTRY = {
     'Otros': {'symbol': '$', 'code': 'USD', 'name': 'Dólar estadounidense'},
 }
 
-CREATE_TABLE_SQL = '''
+def get_create_table_sql(use_mysql):
+    return '''
 CREATE TABLE IF NOT EXISTS products (
     id {id_column},
     product_name TEXT NOT NULL,
@@ -118,13 +75,13 @@ CREATE TABLE IF NOT EXISTS products (
     created_at TEXT NOT NULL
 ){table_options}
 '''.format(
-    id_column='INT AUTO_INCREMENT PRIMARY KEY' if MYSQL_AVAILABLE else 'INTEGER PRIMARY KEY AUTOINCREMENT',
-    table_options=' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4' if MYSQL_AVAILABLE else ''
-)
+        id_column='INT AUTO_INCREMENT PRIMARY KEY' if use_mysql else 'INTEGER PRIMARY KEY AUTOINCREMENT',
+        table_options=' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4' if use_mysql else ''
+    )
 
 
 def format_sql(sql):
-    return sql if MYSQL_AVAILABLE else sql.replace('%s', '?')
+    return sql if DB_USE_MYSQL else sql.replace('%s', '?')
 
 
 def execute_sql(sql, params=(), fetchone=False, fetchall=False, commit=False):
@@ -142,11 +99,21 @@ def execute_sql(sql, params=(), fetchone=False, fetchall=False, commit=False):
         cursor.close()
 
 
+def fallback_to_sqlite():
+    global DB_USE_MYSQL
+    DB_USE_MYSQL = False
+
+
 def get_db_connection():
     conn = getattr(g, '_database', None)
     if conn is None:
-        if MYSQL_AVAILABLE:
-            conn = pymysql.connect(**DB_CONFIG)
+        if DB_USE_MYSQL:
+            try:
+                conn = pymysql.connect(**DB_CONFIG)
+            except Exception:
+                fallback_to_sqlite()
+                conn = sqlite3.connect(DB_PATH)
+                conn.row_factory = sqlite3.Row
         else:
             conn = sqlite3.connect(DB_PATH)
             conn.row_factory = sqlite3.Row
@@ -162,18 +129,25 @@ def close_connection(exception):
 
 
 def init_db():
-    if MYSQL_AVAILABLE:
-        conn = pymysql.connect(**DB_CONFIG)
-        cursor = conn.cursor()
+    if DB_USE_MYSQL:
         try:
-            cursor.execute(CREATE_TABLE_SQL)
+            conn = pymysql.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(get_create_table_sql(True))
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+        except Exception:
+            fallback_to_sqlite()
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(get_create_table_sql(False))
             conn.commit()
-        finally:
-            cursor.close()
             conn.close()
     else:
         conn = sqlite3.connect(DB_PATH)
-        conn.execute(CREATE_TABLE_SQL)
+        conn.execute(get_create_table_sql(False))
         conn.commit()
         conn.close()
 
@@ -219,18 +193,18 @@ def index():
                     final_price, currency_code, currency_symbol, created_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
                 (
-                    encrypt_text(result['product_name']),
-                    encrypt_text(result['cost']),
-                    encrypt_text(result['profit_pct']),
-                    encrypt_text(result['country']),
+                    result['product_name'],
+                    result['cost'],
+                    result['profit_pct'],
+                    result['country'],
                     int(is_service),
-                    encrypt_text(iva_rate),
-                    encrypt_text(result['profit_amount']),
-                    encrypt_text(result['base_price']),
-                    encrypt_text(result['iva_amount']),
-                    encrypt_text(result['final_price']),
-                    encrypt_text(result['currency_code']),
-                    encrypt_text(result['currency_symbol']),
+                    iva_rate,
+                    result['profit_amount'],
+                    result['base_price'],
+                    result['iva_amount'],
+                    result['final_price'],
+                    result['currency_code'],
+                    result['currency_symbol'],
                     datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
                 ),
                 commit=True,
@@ -288,18 +262,18 @@ def products():
                         currency_symbol=%s
                     WHERE id=%s''',
                     (
-                        encrypt_text(product_name),
-                        encrypt_text(cost),
-                        encrypt_text(profit_pct),
-                        encrypt_text(country),
+                        product_name,
+                        cost,
+                        profit_pct,
+                        country,
                         int(is_service),
-                        encrypt_text(iva_rate),
-                        encrypt_text(profit_amount),
-                        encrypt_text(base_price),
-                        encrypt_text(iva_amount),
-                        encrypt_text(final_price),
-                        encrypt_text(currency['code']),
-                        encrypt_text(currency['symbol']),
+                        iva_rate,
+                        profit_amount,
+                        base_price,
+                        iva_amount,
+                        final_price,
+                        currency['code'],
+                        currency['symbol'],
                         product_id,
                     ),
                     commit=True,
@@ -315,10 +289,10 @@ def products():
         if edit_product:
             edit_product = {
                 'id': edit_product['id'],
-                'product_name': decrypt_text(edit_product['product_name']),
-                'cost': decrypt_text(edit_product['cost']),
-                'profit_pct': decrypt_text(edit_product['profit_pct']),
-                'country': decrypt_text(edit_product['country']),
+                'product_name': edit_product['product_name'],
+                'cost': edit_product['cost'],
+                'profit_pct': edit_product['profit_pct'],
+                'country': edit_product['country'],
                 'is_service': bool(edit_product['is_service']),
             }
 
@@ -328,18 +302,18 @@ def products():
     for row in rows:
         decrypted = {
             'id': row['id'],
-            'product_name': decrypt_text(row['product_name']),
-            'cost': float(decrypt_text(row['cost'])) if row['cost'] else 0.0,
-            'profit_pct': float(decrypt_text(row['profit_pct'])) if row['profit_pct'] else 0.0,
-            'country': decrypt_text(row['country']),
+            'product_name': row['product_name'],
+            'cost': float(row['cost']) if row['cost'] else 0.0,
+            'profit_pct': float(row['profit_pct']) if row['profit_pct'] else 0.0,
+            'country': row['country'],
             'is_service': bool(row['is_service']),
-            'iva_rate': float(decrypt_text(row['iva_rate'])) if row['iva_rate'] else 0.0,
-            'profit_amount': float(decrypt_text(row['profit_amount'])) if row['profit_amount'] else 0.0,
-            'base_price': float(decrypt_text(row['base_price'])) if row['base_price'] else 0.0,
-            'iva_amount': float(decrypt_text(row['iva_amount'])) if row['iva_amount'] else 0.0,
-            'final_price': float(decrypt_text(row['final_price'])) if row['final_price'] else 0.0,
-            'currency_code': decrypt_text(row['currency_code']),
-            'currency_symbol': decrypt_text(row['currency_symbol']),
+            'iva_rate': float(row['iva_rate']) if row['iva_rate'] else 0.0,
+            'profit_amount': float(row['profit_amount']) if row['profit_amount'] else 0.0,
+            'base_price': float(row['base_price']) if row['base_price'] else 0.0,
+            'iva_amount': float(row['iva_amount']) if row['iva_amount'] else 0.0,
+            'final_price': float(row['final_price']) if row['final_price'] else 0.0,
+            'currency_code': row['currency_code'],
+            'currency_symbol': row['currency_symbol'],
             'created_at': row['created_at'],
         }
         products_list.append(decrypted)
