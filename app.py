@@ -24,6 +24,8 @@ DB_CONFIG = {
     'cursorclass': DictCursor,
 }
 
+
+
 DB_USE_MYSQL = MYSQL_AVAILABLE
 DB_PATH = os.path.join(os.path.dirname(__file__), 'products.db')
 
